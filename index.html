@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>設計製図 作業時間計測</title>
+<meta name="theme-color" content="#FBFAF6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="製図タイマー">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="icon" href="./icons/icon-192.png">
+<style>
+/* ============================================================================
+ * 配色・字面は学科試験テンプレートに合わせている。
+ * フォントは端末内蔵のものだけを使う（オフラインで確実に表示するため）。
+ * ========================================================================== */
+:root{
+  --paper:#FBFAF6; --ink:#2B2A26; --rule:#D9D5C7; --rule-light:#ECE9DE;
+  --sub:#8A8576; --sub-dark:#6E6A5E; --fill:#F4F2EA; --bar:#E7E3D6;
+  --good:#2F7D55; --good-bg:#F1F6F1; --bad:#C8362E; --bad-bg:#FCF3F1;
+  --white:#FFFFFF;
+  --sans:"Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+body{
+  margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;
+}
+button{font-family:inherit;cursor:pointer;}
+button:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+
+/* ── 骨格 ───────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100dvh;padding-top:env(safe-area-inset-top);}
+.wrap{margin:0 auto;width:100%;max-width:680px;}
+.head{flex:0 0 auto;border-bottom:1px solid rgba(43,42,38,.2);padding:12px 16px 8px;}
+.head-row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.head h1{margin:0;font-size:15px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.badge{display:flex;align-items:center;justify-content:center;width:32px;height:32px;flex:0 0 auto;
+  border:1px solid var(--ink);font-family:var(--mono);font-size:13px;font-weight:500;}
+main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow-y:auto;}
+/* 計測・準備画面は画面内で完結させ、main 自体はスクロールさせない */
+main.fixed{overflow:hidden;}
+.scroll{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.pad{padding:20px 16px calc(12px + env(safe-area-inset-bottom));}
+
+/* ── 部品 ───────────────────────────────────────────── */
+.eyebrow{font-family:var(--mono);font-size:9px;letter-spacing:.3em;color:var(--sub);}
+.mono{font-family:var(--mono);}
+.lead{margin:8px 0 0;font-size:13px;line-height:1.7;color:var(--sub-dark);}
+.btn{border-radius:2px;padding:9px 12px;font-size:13px;font-weight:500;
+  border:1px solid rgba(43,42,38,.4);background:transparent;color:var(--ink);}
+.btn:active{opacity:.7;}
+.btn[disabled]{opacity:.3;pointer-events:none;}
+.btn-quiet{border:1px solid var(--rule);background:var(--white);color:var(--sub-dark);}
+.btn-solid{border:1px solid var(--ink);background:var(--ink);color:var(--paper);}
+.btn-danger{border:1px solid var(--bad);background:var(--bad);color:var(--paper);}
+.btn-full{display:block;width:100%;text-align:center;}
+.btn-primary{display:block;width:100%;border-radius:2px;padding:16px;font-size:17px;font-weight:700;
+  border:1px solid var(--ink);background:var(--ink);color:var(--paper);}
+.btn-primary:active{opacity:.7;}
+.btn-primary[disabled]{background:var(--bar);color:var(--sub);border-color:var(--rule);pointer-events:none;}
+.head-btn{border-radius:2px;padding:4px 10px;font-size:11px;border:1px solid rgba(43,42,38,.4);
+  background:transparent;color:var(--ink);}
+.row{display:flex;gap:8px;}
+.row>*{flex:1 1 0;min-width:0;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.card{border:1px solid var(--rule);background:var(--white);border-radius:2px;}
+.mt2{margin-top:8px;} .mt3{margin-top:12px;} .mt5{margin-top:20px;} .mt8{margin-top:32px;}
+
+/* ── ホーム ─────────────────────────────────────────── */
+.mode-main{display:block;width:100%;text-align:left;border:1px solid var(--ink);background:var(--ink);
+  color:var(--paper);border-radius:2px;padding:16px;margin-bottom:12px;}
+.mode-main:active{opacity:.7;}
+.mode-main .t{display:flex;align-items:baseline;justify-content:space-between;}
+.mode-main .t b{font-size:17px;}
+.mode-main .t span{font-family:var(--mono);font-size:13px;}
+.mode-main .s{margin-top:4px;font-size:11px;opacity:.75;}
+.mode-sub{display:block;text-align:left;border:1px solid var(--rule);background:var(--white);
+  border-radius:2px;padding:12px;color:var(--ink);}
+.mode-sub:active{opacity:.7;}
+.mode-sub b{font-size:15px;font-weight:500;}
+.mode-sub span{display:block;margin-top:4px;font-family:var(--mono);font-size:11px;color:var(--sub);}
+
+/* ── 準備画面 ───────────────────────────────────────── */
+.stat{border:1px solid var(--rule);background:var(--white);border-radius:2px;padding:10px 12px;}
+.stat i{display:block;font-style:normal;font-family:var(--mono);font-size:10px;color:var(--sub);}
+.stat b{display:block;font-family:var(--mono);font-size:19px;font-weight:500;line-height:1.2;}
+.item{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--white);
+  border-radius:2px;padding:6px 10px;margin-top:4px;}
+.item.first{background:var(--fill);}
+.item .no{flex:0 0 20px;font-family:var(--mono);font-size:10px;color:var(--sub);}
+.item .nm{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.item .tm{flex:0 0 auto;font-family:var(--mono);font-size:12px;color:var(--sub-dark);}
+.tag{display:inline-block;margin-right:6px;padding:0 4px;border:1px solid var(--rule);background:var(--fill);
+  border-radius:2px;font-size:10px;color:var(--sub-dark);vertical-align:middle;}
+
+/* ── 計測画面 ───────────────────────────────────────── */
+.run{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;}
+.run-top{flex:0 0 auto;border-bottom:1px solid var(--rule);padding:12px 16px 0;}
+.run-top .cols{display:flex;align-items:flex-end;justify-content:space-between;}
+.big{font-family:var(--mono);font-size:30px;font-weight:500;line-height:1;}
+.pace{font-family:var(--mono);font-size:22px;font-weight:500;line-height:1;}
+.tiny{font-family:var(--mono);font-size:10px;color:var(--sub);margin-top:4px;}
+.progress{display:flex;align-items:center;gap:8px;margin:12px 0;}
+.track{flex:1 1 auto;height:3px;border-radius:99px;background:var(--bar);overflow:hidden;}
+.track>i{display:block;height:100%;background:var(--ink);border-radius:99px;transition:width .3s;}
+.run-mid{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding:8px 16px 12px;}
+.laps{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.laps-empty{height:100%;display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--sub);text-align:center;padding:0 24px;}
+.lap{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--white);
+  border-radius:2px;padding:6px 10px;margin-bottom:4px;}
+.lap.under{border-color:rgba(47,125,85,.27);background:var(--good-bg);}
+.lap.over{border-color:rgba(200,54,46,.27);background:var(--bad-bg);}
+.lap.skip{background:var(--fill);color:var(--sub);}
+.lap .no{flex:0 0 20px;font-family:var(--mono);font-size:10px;color:var(--sub);}
+.lap .nm{flex:1 1 auto;min-width:0;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lap .nm em{font-style:normal;font-size:10px;color:var(--sub);margin-right:4px;}
+.lap .tm{flex:0 0 auto;font-family:var(--mono);font-size:14px;font-weight:500;}
+.lap .df{flex:0 0 52px;text-align:right;font-family:var(--mono);font-size:11px;}
+.now{flex:0 0 auto;margin-top:12px;border:1px solid var(--rule);background:var(--white);
+  border-radius:2px;padding:16px;text-align:center;}
+.now.over{border-color:var(--bad);background:var(--bad-bg);}
+.now .ph{font-size:11px;letter-spacing:.03em;color:var(--sub);}
+.now .nm{margin-top:4px;font-size:19px;font-weight:700;line-height:1.35;}
+.now .tm{margin-top:12px;font-family:var(--mono);font-size:46px;font-weight:500;line-height:1;}
+.now.over .tm{color:var(--bad);}
+.now .std{margin-top:8px;font-family:var(--mono);font-size:12px;color:var(--sub);}
+.now.over .std{color:var(--bad);}
+.now .track{height:4px;margin-top:12px;border-radius:99px;}
+.next{margin-top:8px;text-align:center;font-size:12px;color:var(--sub);}
+.paused-note{margin-top:12px;border:1px dashed var(--rule);background:var(--fill);border-radius:2px;
+  padding:8px 12px;text-align:center;font-size:12px;color:var(--sub-dark);}
+.run-foot{flex:0 0 auto;border-top:1px solid var(--rule);
+  padding:12px 16px calc(16px + env(safe-area-inset-bottom));}
+
+/* ── 結果・履歴 ─────────────────────────────────────── */
+.sum{border:1px solid var(--rule);background:var(--white);border-radius:2px;padding:16px;}
+.sum .cols{display:flex;align-items:flex-end;justify-content:space-between;}
+.sum .l{font-family:var(--mono);font-size:10px;color:var(--sub);}
+.worst{display:flex;align-items:center;justify-content:space-between;gap:8px;border-radius:2px;
+  padding:8px 12px;margin-top:4px;border:1px solid rgba(200,54,46,.27);background:var(--bad-bg);}
+.worst span:first-child{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.worst span:last-child{flex:0 0 auto;font-family:var(--mono);font-size:13px;font-weight:500;color:var(--bad);}
+.brk{margin-top:12px;}
+.brk .hd{display:flex;justify-content:space-between;font-size:12px;}
+.brk .b1{height:8px;border-radius:2px;background:var(--bar);overflow:hidden;margin-top:4px;}
+.brk .b2{height:4px;border-radius:2px;background:var(--fill);overflow:hidden;margin-top:3px;}
+.brk i{display:block;height:100%;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th,td{border:1px solid var(--rule);padding:4px 8px;text-align:left;}
+th{background:var(--fill);font-weight:500;}
+td .ph{font-size:9px;color:var(--sub);}
+.tbl-wrap{overflow-x:auto;margin-top:8px;}
+.chip{border-radius:2px;padding:4px 10px;font-size:11px;border:1px solid var(--rule);
+  background:var(--white);color:var(--sub-dark);margin:0 6px 6px 0;}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+.rec{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--white);
+  border-radius:2px;padding:10px 12px;margin-top:8px;}
+.rec>button:first-child{flex:1 1 auto;min-width:0;text-align:left;border:0;background:none;padding:0;color:inherit;}
+.rec .d{font-family:var(--mono);font-size:11px;color:var(--sub);}
+.rec .m{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rec .r{flex:0 0 auto;text-align:right;}
+.rec .del{flex:0 0 auto;border:0;background:none;font-size:17px;color:var(--sub);padding:0 4px;}
+.empty{margin-top:16px;border:1px dashed var(--rule);border-radius:2px;padding:24px;
+  text-align:center;font-size:13px;color:var(--sub);line-height:1.7;}
+textarea{width:100%;height:160px;margin-top:8px;border:1px solid var(--rule);border-radius:2px;
+  padding:8px;font-family:var(--mono);font-size:11px;-webkit-user-select:text;user-select:text;}
+
+/* ── ダイアログ ─────────────────────────────────────── */
+.overlay{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+  padding:24px;background:rgba(43,42,38,.45);}
+.dialog{width:100%;max-width:340px;border:1px solid var(--ink);background:var(--white);
+  border-radius:2px;padding:20px;}
+.dialog h2{margin:0;font-size:15px;font-weight:700;}
+.dialog p{margin:8px 0 0;font-size:12.5px;line-height:1.7;color:var(--sub-dark);}
+
+.good{color:var(--good);} .bad{color:var(--bad);} .sub{color:var(--sub);}
+.note{margin-top:8px;font-size:10px;color:var(--sub);}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="head">
+    <div class="wrap head-row">
+      <div style="min-width:0">
+        <div class="eyebrow">WORK TIMER / 作業時間計測</div>
+        <h1 id="head-title">設計製図</h1>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto">
+        <button class="head-btn" id="head-home" hidden>ホーム</button>
+        <div class="badge">製</div>
+      </div>
+    </div>
+  </header>
+  <main id="main"></main>
+</div>
+<div id="dialog-root"></div>
+<script src="./app.js"></script>
+</body>
+</html>
