@@ -162,8 +162,9 @@ const S = {
   laps: [],
   startAt: 0,
   lapStartAt: 0,
-  pausedTotal: 0,
-  pauseAt: null,
+  pausedTotal: 0, // 計測全体の中断累計（ms）
+  lapPaused: 0,   // 現在の項目における中断累計（ms）
+  pauseAt: null,  // 中断中ならその開始時刻
   alerted: new Set(),
 };
 
@@ -309,6 +310,7 @@ function beginRun() {
   S.startAt = t;
   S.lapStartAt = t;
   S.pausedTotal = 0;
+  S.lapPaused = 0;
   S.pauseAt = null;
   S.alerted = new Set();
   go("run");
@@ -434,7 +436,7 @@ function tick() {
   const pauseNow = paused ? now - S.pauseAt : 0;
 
   const totalSec = Math.max(0, (now - S.startAt - S.pausedTotal - pauseNow) / 1000);
-  const lapSec = Math.max(0, (now - S.lapStartAt - pauseNow) / 1000);
+  const lapSec = Math.max(0, (now - S.lapStartAt - S.lapPaused - pauseNow) / 1000);
   const stdSec = task.std * 60;
   const over = stdSec > 0 && lapSec > stdSec;
 
@@ -497,7 +499,7 @@ function commit(skipped) {
   const paused = S.pauseAt !== null;
   const pauseNow = paused ? stamp - S.pauseAt : 0;
   const task = S.tasks[S.idx];
-  const sec = skipped ? 0 : Math.max(0, (stamp - S.lapStartAt - pauseNow) / 1000);
+  const sec = skipped ? 0 : Math.max(0, (stamp - S.lapStartAt - S.lapPaused - pauseNow) / 1000);
   S.laps.push({
     id: task.id, phase: task.phase, sheet: task.sheet, name: task.name, std: task.std, sec, skipped,
   });
@@ -514,11 +516,16 @@ function commit(skipped) {
   }
 
   S.idx += 1;
-  // スキップ時は「実施していない」ので、経過中の時間は次項目へ繰り越す
-  if (!skipped) S.lapStartAt = stamp;
   if (paused) {
+    // 中断中に項目が切り替わった場合は、ここまでの中断を確定させる
     S.pausedTotal += pauseNow;
+    S.lapPaused += pauseNow;
     S.pauseAt = stamp;
+  }
+  // スキップ時は「実施していない」ので、経過時間も中断累計も次項目へ繰り越す
+  if (!skipped) {
+    S.lapStartAt = stamp;
+    S.lapPaused = 0;
   }
   renderLaps();
   tick();
@@ -529,16 +536,20 @@ function undo() {
   const last = S.laps.pop();
   S.idx -= 1;
   S.alerted.delete(S.idx);
-  const pauseNow = S.pauseAt !== null ? Date.now() - S.pauseAt : 0;
+  const now = Date.now();
+  const pauseNow = S.pauseAt !== null ? now - S.pauseAt : 0;
   // 直前ラップの経過時間を復元した状態で再開する
-  S.lapStartAt = Date.now() - last.sec * 1000 + pauseNow;
+  S.lapPaused = 0;
+  S.lapStartAt = now - last.sec * 1000 - pauseNow;
   renderLaps();
   tick();
 }
 
 function togglePause() {
   if (S.pauseAt !== null) {
-    S.pausedTotal += Date.now() - S.pauseAt;
+    const d = Date.now() - S.pauseAt;
+    S.pausedTotal += d; // 総時間から除外
+    S.lapPaused += d;   // 現在の項目の経過からも除外
     S.pauseAt = null;
   } else {
     S.pauseAt = Date.now();
